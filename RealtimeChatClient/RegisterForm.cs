@@ -14,7 +14,7 @@ namespace RealtimeChatClient
         private void btnSubmit_Click(object sender, EventArgs e)
         {
             string user = txtUser.Text.Trim();
-            string pass = txtPass.Text.Trim();
+            string pass = CryptoHelper.HashPassword(txtPass.Text.Trim());
             string name = txtFullName.Text.Trim();
 
             if (user == "" || pass == "" || name == "")

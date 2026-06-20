@@ -17,21 +17,77 @@ namespace RealtimeChatClient
         public event Action<string> MessageReceived;
         public event Action Disconnected;
 
-        public async Task<bool> ConnectAsync(string ip, int port, string username)
+        public async Task<bool> ConnectAsync(string loadBalancerIp, int loadBalancerPort, string username)
         {
             try
             {
+                // --- NHỊP 1: HỎI ĐƯỜNG LOAD BALANCER ---
+                string targetIp = "";
+                int targetPort = 0;
+
+                using (TcpClient lbClient = new TcpClient())
+                {
+                    // Kết nối tới Điều phối viên
+                    await lbClient.ConnectAsync(loadBalancerIp, loadBalancerPort);
+                    using (NetworkStream lbStream = lbClient.GetStream())
+                    using (StreamReader lbReader = new StreamReader(lbStream, Encoding.UTF8))
+                    {
+                        // Đợi Điều phối viên trả về địa chỉ Server rảnh
+                        string response = await lbReader.ReadLineAsync();
+                        if (response != null && response.StartsWith("REDIRECT|"))
+                        {
+                            var parts = response.Split('|');
+                            targetIp = parts[1];
+                            targetPort = int.Parse(parts[2]);
+                        }
+                        else
+                        {
+                            return false; // Load balancer trả về sai định dạng
+                        }
+                    }
+                } // Tự động đóng kết nối với Load Balancer tại đây
+
+                // --- NHỊP 2: KẾT NỐI VÀO CHAT SERVER THỰC SỰ ---
                 _client = new TcpClient();
-                await _client.ConnectAsync(ip, port);
+                await _client.ConnectAsync(targetIp, targetPort);
                 _stream = _client.GetStream();
                 _reader = new StreamReader(_stream, Encoding.UTF8);
                 _writer = new StreamWriter(_stream, Encoding.UTF8) { AutoFlush = true };
 
-                // Gửi username ngay khi kết nối
+                // ================= CHÈN ĐOẠN BẮT TAY VÀO ĐÂY =================
+
+                // 1. Tạo cặp khóa RSA
+                CryptoHelper.GenerateRSAKeys(out string pubKey, out string privKey);
+
+                // 2. Gửi Public Key cho Server
+                await _writer.WriteLineAsync($"RSA_PUB|{pubKey}");
+
+                // 3. Nhận AES Key đã được Server mã hóa
+                string aesMsg = await _reader.ReadLineAsync();
+
+                if (aesMsg != null && aesMsg.StartsWith("AES_KEY|"))
+                {
+                    string encryptedAES = aesMsg.Substring(8);
+
+                    // 4. Giải mã AES bằng Private Key
+                    string decryptedAES = CryptoHelper.RSADecrypt(encryptedAES, privKey);
+
+                    // 5. Cập nhật khóa AES dùng để mã hóa chat
+                    CryptoHelper.DynamicAESKey = decryptedAES;
+                }
+                else
+                {
+                    return false;
+                }
+
+                // =============================================================
+
+                // Gửi username sau khi bắt tay xong
                 await _writer.WriteLineAsync($"LOGIN|{username}");
 
                 // Khởi chạy luồng đọc dữ liệu liên tục (Background)
                 _ = Task.Run(() => ReceiveMessagesAsync());
+
                 return true;
             }
             catch (Exception)

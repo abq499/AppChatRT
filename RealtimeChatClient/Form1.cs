@@ -53,7 +53,7 @@ namespace RealtimeChatClient
             AppendToChat("System", "Đang kết nối đến server...");
 
             // Giả định server chạy ở localhost port 8888
-            bool success = await _chatLogic.ConnectAsync("127.0.0.1", 8888, _myUsername);
+            bool success = await _chatLogic.ConnectAsync("127.0.0.1", 8800, _myUsername);
 
             if (success)
             {

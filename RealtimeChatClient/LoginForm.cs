@@ -17,7 +17,7 @@ namespace RealtimeChatClient
         private void btnLogin_Click(object sender, EventArgs e)
         {
             string username = txtUsername.Text.Trim();
-            string password = txtPassword.Text.Trim();
+            string password = CryptoHelper.HashPassword(txtPassword.Text.Trim());
 
             if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
             {

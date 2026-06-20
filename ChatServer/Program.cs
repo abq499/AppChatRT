@@ -7,19 +7,31 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Linq;
 using System.Data.SqlClient; // THÊM THƯ VIỆN NÀY
+using RealtimeChatClient;
 
 class Program
 {
     static ConcurrentDictionary<string, StreamWriter> connectedClients = new ConcurrentDictionary<string, StreamWriter>();
+    static string MasterAESKey = "UIT_Cluster_Master_Key_123456789";
 
     // Chuỗi kết nối Database của em
     static string connString = @"Server=LAPTOP-TKFEE1EB\XMSSQLSERVER;Database=ChatAppDB;Trusted_Connection=True;";
 
+    // Thêm biến lưu Port của Server này
+    static int currentPort = 8888;
+
     static async Task Main(string[] args)
     {
-        TcpListener listener = new TcpListener(IPAddress.Any, 8888);
+        Console.Write("Nhập Port cho Server này (VD: 8888, 8889, 8890): ");
+        string inputPort = Console.ReadLine();
+        if (int.TryParse(inputPort, out int parsedPort))
+        {
+            currentPort = parsedPort;
+        }
+
+        TcpListener listener = new TcpListener(IPAddress.Any, currentPort);
         listener.Start();
-        Console.WriteLine("Server started on port 8888...");
+        Console.WriteLine($"[CHAT SERVER] Đang chạy tại Port {currentPort}...");
 
         while (true)
         {
@@ -101,6 +113,20 @@ class Program
         string username = "Unknown";
         try
         {
+            string rsaMsg = await reader.ReadLineAsync();
+            if (rsaMsg != null && rsaMsg.StartsWith("RSA_PUB|"))
+            {
+                string clientPubKey = rsaMsg.Substring(8);
+
+                string encryptedAES = CryptoHelper.RSAEncrypt(MasterAESKey, clientPubKey);
+
+                await writer.WriteLineAsync($"AES_KEY|{encryptedAES}");
+            }
+            else
+            {
+                return;
+            }
+
             string initMsg = await reader.ReadLineAsync();
             if (initMsg != null && initMsg.StartsWith("LOGIN|"))
             {
