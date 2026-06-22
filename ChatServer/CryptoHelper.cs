@@ -1,129 +1,167 @@
 ﻿using System;
+using System.IO;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
-using System.IO;
 
 namespace RealtimeChatClient
 {
     public class CryptoHelper
     {
-        // 1. CHÌA KHÓA AES ĐÃ CHUYỂN THÀNH DYNAMIC (Không còn hardcode nữa)
-        // Mặc định để 1 chuỗi 32 byte để tránh lỗi null ban đầu, sau đó sẽ bị ghi đè lúc chạy.
+        // Khoa AES dong bo giua client va server sau buoc bat tay RSA
         public static string DynamicAESKey = "uit_network_programming_chat_key";
 
-        // ---------------- CÁC HÀM XỬ LÝ AES (Dùng để mã hóa tin nhắn) ----------------
+        // Tao key AES 32 bytes tu chuoi DynamicAESKey
+        private static byte[] GetAESKey()
+        {
+            return Encoding.UTF8.GetBytes(DynamicAESKey.PadRight(32).Substring(0, 32));
+        }
+
+        // Ma hoa AES: moi tin nhan sinh IV ngau nhien
+        // Format tra ve: Base64(IV + CipherText)
         public static string Encrypt(string plainText)
         {
-            if (string.IsNullOrEmpty(plainText)) return plainText;
-            byte[] iv = new byte[16];
-            byte[] array;
-            using (Aes aes = Aes.Create())
+            if (string.IsNullOrEmpty(plainText))
+                return plainText;
+
+            try
             {
-                // Dùng khóa động thay vì khóa cứng
-                aes.Key = Encoding.UTF8.GetBytes(DynamicAESKey.PadRight(32).Substring(0, 32));
-                aes.IV = iv;
-                ICryptoTransform encryptor = aes.CreateEncryptor(aes.Key, aes.IV);
-                using (MemoryStream memoryStream = new MemoryStream())
+                using (Aes aes = Aes.Create())
                 {
-                    using (CryptoStream cryptoStream = new CryptoStream(memoryStream, encryptor, CryptoStreamMode.Write))
+                    aes.Key = GetAESKey();
+                    aes.GenerateIV();
+
+                    using (MemoryStream memoryStream = new MemoryStream())
                     {
-                        using (StreamWriter streamWriter = new StreamWriter(cryptoStream))
+                        // Ghi IV vao dau goi tin de ben nhan lay ra giai ma
+                        memoryStream.Write(aes.IV, 0, aes.IV.Length);
+
+                        using (ICryptoTransform encryptor = aes.CreateEncryptor(aes.Key, aes.IV))
+                        using (CryptoStream cryptoStream = new CryptoStream(memoryStream, encryptor, CryptoStreamMode.Write))
+                        using (StreamWriter streamWriter = new StreamWriter(cryptoStream, Encoding.UTF8))
                         {
                             streamWriter.Write(plainText);
                         }
-                        array = memoryStream.ToArray();
-                    }
-                }
-            }
-            return Convert.ToBase64String(array);
-        }
 
-        public static string Decrypt(string cipherText)
-        {
-            if (string.IsNullOrEmpty(cipherText)) return cipherText;
-            byte[] iv = new byte[16];
-            try
-            {
-                byte[] buffer = Convert.FromBase64String(cipherText);
-                using (Aes aes = Aes.Create())
-                {
-                    aes.Key = Encoding.UTF8.GetBytes(DynamicAESKey.PadRight(32).Substring(0, 32));
-                    aes.IV = iv;
-                    ICryptoTransform decryptor = aes.CreateDecryptor(aes.Key, aes.IV);
-                    using (MemoryStream memoryStream = new MemoryStream(buffer))
-                    {
-                        using (CryptoStream cryptoStream = new CryptoStream(memoryStream, decryptor, CryptoStreamMode.Read))
-                        {
-                            using (StreamReader streamReader = new StreamReader(cryptoStream))
-                            {
-                                return streamReader.ReadToEnd();
-                            }
-                        }
+                        return Convert.ToBase64String(memoryStream.ToArray());
                     }
                 }
             }
             catch
             {
-                return "[Tin nhắn đã bị lỗi mã hóa]";
+                return "[Loi ma hoa]";
             }
         }
 
-        // ---------------- CÁC HÀM XỬ LÝ RSA VÀ TẠO KHÓA (MỚI THÊM) ----------------
+        // Giai ma AES: tach 16 byte dau lam IV, phan sau la ciphertext
+        public static string Decrypt(string cipherText)
+        {
+            if (string.IsNullOrEmpty(cipherText))
+                return cipherText;
 
-        // Hàm băm mật khẩu lúc Đăng nhập/Đăng ký
+            try
+            {
+                byte[] fullCipher = Convert.FromBase64String(cipherText);
+
+                // AES block size IV = 16 bytes
+                if (fullCipher.Length <= 16)
+                    return "[Tin nhan da bi loi ma hoa]";
+
+                byte[] iv = new byte[16];
+                byte[] cipher = new byte[fullCipher.Length - 16];
+
+                Array.Copy(fullCipher, 0, iv, 0, iv.Length);
+                Array.Copy(fullCipher, 16, cipher, 0, cipher.Length);
+
+                using (Aes aes = Aes.Create())
+                {
+                    aes.Key = GetAESKey();
+                    aes.IV = iv;
+
+                    using (ICryptoTransform decryptor = aes.CreateDecryptor(aes.Key, aes.IV))
+                    using (MemoryStream memoryStream = new MemoryStream(cipher))
+                    using (CryptoStream cryptoStream = new CryptoStream(memoryStream, decryptor, CryptoStreamMode.Read))
+                    using (StreamReader streamReader = new StreamReader(cryptoStream, Encoding.UTF8))
+                    {
+                        return streamReader.ReadToEnd();
+                    }
+                }
+            }
+            catch
+            {
+                return "[Tin nhan da bi loi ma hoa]";
+            }
+        }
+
+        // Bam mat khau de luu DB
         public static string HashPassword(string rawPassword)
         {
             using (SHA256 sha256 = SHA256.Create())
             {
                 byte[] bytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(rawPassword));
                 StringBuilder builder = new StringBuilder();
+
                 foreach (byte b in bytes)
-                {
                     builder.Append(b.ToString("x2"));
-                }
+
                 return builder.ToString();
             }
         }
 
-        // Client dùng hàm này để tạo ra 1 khóa AES ngẫu nhiên (32 ký tự)
+        // Tao AES key ngau nhien
         public static string GenerateRandomAESKey()
         {
             const string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*";
-            var random = new Random();
-            var key = new string(Enumerable.Repeat(chars, 32).Select(s => s[random.Next(s.Length)]).ToArray());
-            return key;
+            using (RandomNumberGenerator rng = RandomNumberGenerator.Create())
+            {
+                char[] result = new char[32];
+                byte[] randomBytes = new byte[32];
+
+                rng.GetBytes(randomBytes);
+
+                for (int i = 0; i < result.Length; i++)
+                    result[i] = chars[randomBytes[i] % chars.Length];
+
+                return new string(result);
+            }
         }
 
-        // Server dùng hàm này để tạo 1 cặp khóa RSA
+        // Tao cap khoa RSA
         public static void GenerateRSAKeys(out string publicKey, out string privateKey)
         {
             using (RSACryptoServiceProvider rsa = new RSACryptoServiceProvider(2048))
             {
-                publicKey = rsa.ToXmlString(false); // Chỉ xuất Public Key
-                privateKey = rsa.ToXmlString(true);  // Xuất cả Private Key
+                publicKey = rsa.ToXmlString(false);
+                privateKey = rsa.ToXmlString(true);
             }
         }
 
-        // Client dùng hàm này để mã hóa cái AES Key bằng RSA Public Key
+        // Ma hoa AES key bang RSA Public Key
         public static string RSAEncrypt(string data, string publicKey)
         {
             using (RSACryptoServiceProvider rsa = new RSACryptoServiceProvider(2048))
             {
                 rsa.FromXmlString(publicKey);
                 byte[] dataBytes = Encoding.UTF8.GetBytes(data);
-                byte[] encryptedBytes = rsa.Encrypt(dataBytes, false);
+
+                // true = OAEP padding
+                byte[] encryptedBytes = rsa.Encrypt(dataBytes, true);
+
                 return Convert.ToBase64String(encryptedBytes);
             }
         }
 
-        // Server dùng hàm này để giải mã, lấy lại AES Key bằng RSA Private Key
+        // Giai ma AES key bang RSA Private Key
         public static string RSADecrypt(string encryptedData, string privateKey)
         {
             using (RSACryptoServiceProvider rsa = new RSACryptoServiceProvider(2048))
             {
                 rsa.FromXmlString(privateKey);
                 byte[] encryptedBytes = Convert.FromBase64String(encryptedData);
-                byte[] decryptedBytes = rsa.Decrypt(encryptedBytes, false);
+
+                // Phai dung true giong RSAEncrypt
+                byte[] decryptedBytes = rsa.Decrypt(encryptedBytes, true);
+
                 return Encoding.UTF8.GetString(decryptedBytes);
             }
         }

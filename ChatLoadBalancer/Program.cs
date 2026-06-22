@@ -3,25 +3,40 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading.Tasks;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace ChatLoadBalancer
 {
     class Program
     {
-        // Khai báo danh sách các Chat Server đang chạy (Em có thể thêm nhiều port hơn nếu muốn)
-        static readonly int[] ChatServerPorts = { 8888, 8889 };
+        // Danh sach cac Chat Server trong cum
+        static readonly List<ChatServerNode> ChatServers = new List<ChatServerNode>
+        {
+            new ChatServerNode("127.0.0.1", 8888),
+            new ChatServerNode("127.0.0.1", 8889)
+        };
 
-        // Biến đếm xoay vòng (Round-Robin)
+        // Bien dem Round-Robin
         static int nextServerIndex = 0;
+
+        // Lock tranh nhieu client cung luc lam sai index
+        static readonly object roundRobinLock = new object();
 
         static async Task Main(string[] args)
         {
             int lbPort = 8800;
+
             TcpListener listener = new TcpListener(IPAddress.Any, lbPort);
             listener.Start();
+
             Console.ForegroundColor = ConsoleColor.Magenta;
-            Console.WriteLine($"[LOAD BALANCER] Đang chạy tại Port {lbPort}...");
-            Console.WriteLine($"[LOAD BALANCER] Sẵn sàng điều phối tới cụm Server: {string.Join(", ", ChatServerPorts)}");
+            Console.WriteLine($"[LOAD BALANCER] Dang chay tai Port {lbPort}...");
+            Console.WriteLine("[LOAD BALANCER] Danh sach server:");
+            foreach (var server in ChatServers)
+            {
+                Console.WriteLine($"- {server.Ip}:{server.Port}");
+            }
             Console.ResetColor();
 
             while (true)
@@ -33,30 +48,104 @@ namespace ChatLoadBalancer
 
         static async Task HandleClientRoutingAsync(TcpClient client)
         {
-            using (client) // Đảm bảo đóng kết nối ngay sau khi điều phối xong
+            using (client)
             using (NetworkStream stream = client.GetStream())
             using (StreamWriter writer = new StreamWriter(stream, Encoding.UTF8) { AutoFlush = true })
             {
                 try
                 {
-                    // 1. Thuật toán Round-Robin: Chọn port tiếp theo
-                    int assignedPort = ChatServerPorts[nextServerIndex];
+                    ChatServerNode? assignedServer = await GetAvailableServerAsync();
 
-                    // Tăng index, nếu vượt qua số lượng server thì quay lại 0
-                    nextServerIndex = (nextServerIndex + 1) % ChatServerPorts.Length;
+                    if (assignedServer == null)
+                    {
+                        await writer.WriteLineAsync("ERROR|No available chat server");
+                        Console.ForegroundColor = ConsoleColor.Red;
+                        Console.WriteLine("[LOI] Khong co Chat Server nao dang hoat dong.");
+                        Console.ResetColor();
+                        return;
+                    }
 
-                    // 2. Gửi lệnh chuyển hướng về cho Client
-                    // Cấu trúc: REDIRECT|IP|Port
-                    string redirectMsg = $"REDIRECT|127.0.0.1|{assignedPort}";
+                    string redirectMsg = $"REDIRECT|{assignedServer.Ip}|{assignedServer.Port}";
                     await writer.WriteLineAsync(redirectMsg);
 
-                    Console.WriteLine($"[ĐIỀU PHỐI] Đã chỉ đường 1 Client mới tới Server Port {assignedPort}.");
+                    Console.ForegroundColor = ConsoleColor.Green;
+                    Console.WriteLine($"[DIEU PHOI] Client moi -> {assignedServer.Ip}:{assignedServer.Port}");
+                    Console.ResetColor();
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[LỖI] {ex.Message}");
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.WriteLine($"[LOI ROUTING] {ex.Message}");
+                    Console.ResetColor();
                 }
             }
+        }
+
+        static async Task<ChatServerNode?> GetAvailableServerAsync()
+        {
+            int totalServers = ChatServers.Count;
+
+            for (int i = 0; i < totalServers; i++)
+            {
+                ChatServerNode candidate;
+
+                lock (roundRobinLock)
+                {
+                    candidate = ChatServers[nextServerIndex];
+                    nextServerIndex = (nextServerIndex + 1) % totalServers;
+                }
+
+                bool isAlive = await IsServerAliveAsync(candidate.Ip, candidate.Port, 800);
+
+                if (isAlive)
+                {
+                    return candidate;
+                }
+
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine($"[HEALTH CHECK] Server {candidate.Ip}:{candidate.Port} khong phan hoi, bo qua.");
+                Console.ResetColor();
+            }
+
+            return null;
+        }
+
+        static async Task<bool> IsServerAliveAsync(string ip, int port, int timeoutMs)
+        {
+            try
+            {
+                using (TcpClient testClient = new TcpClient())
+                {
+                    Task connectTask = testClient.ConnectAsync(ip, port);
+                    Task timeoutTask = Task.Delay(timeoutMs);
+
+                    Task completedTask = await Task.WhenAny(connectTask, timeoutTask);
+
+                    if (completedTask == timeoutTask)
+                    {
+                        return false;
+                    }
+
+                    await connectTask;
+                    return testClient.Connected;
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+    }
+
+    class ChatServerNode
+    {
+        public string Ip { get; set; }
+        public int Port { get; set; }
+
+        public ChatServerNode(string ip, int port)
+        {
+            Ip = ip;
+            Port = port;
         }
     }
 }

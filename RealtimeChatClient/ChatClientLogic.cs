@@ -17,6 +17,56 @@ namespace RealtimeChatClient
         public event Action<string> MessageReceived;
         public event Action Disconnected;
 
+        public async Task LeaveRoomAsync(string roomId)
+        {
+            if (_client != null && _client.Connected && _writer != null)
+            {
+                await _writer.WriteLineAsync($"LEAVE_ROOM|{roomId}");
+            }
+        }
+        public async Task UpdateAvatarAsync(string avatarBase64)
+        {
+            if (_client != null && _client.Connected && _writer != null)
+            {
+                await _writer.WriteLineAsync($"UPDATE_AVATAR|{avatarBase64}");
+            }
+        }
+        public async Task UpdateProfileAsync(string fullName, string avatarBase64)
+        {
+            if (_client != null && _client.Connected && _writer != null)
+            {
+                await _writer.WriteLineAsync($"UPDATE_PROFILE|{fullName}|{avatarBase64}");
+            }
+        }
+        public async Task RequestPrivateHistoryAsync(string targetUser)
+        {
+            if (_client != null && _client.Connected && _writer != null)
+            {
+                await _writer.WriteLineAsync($"PRIVATE_HISTORY|{targetUser}");
+            }
+        }
+        public async Task RequestGeneralHistoryAsync()
+        {
+            if (_client != null && _client.Connected && _writer != null)
+            {
+                await _writer.WriteLineAsync("GENERAL_HISTORY");
+            }
+        }
+
+        public async Task ChangePasswordAsync(string oldPasswordHash, string newPasswordHash)
+        {
+            if (_client != null && _client.Connected && _writer != null)
+            {
+                await _writer.WriteLineAsync($"CHANGE_PASSWORD|{oldPasswordHash}|{newPasswordHash}");
+            }
+        }
+        public async Task UpdateEmailAsync(string newEmail)
+        {
+            if (_client != null && _client.Connected && _writer != null)
+            {
+                await _writer.WriteLineAsync($"UPDATE_EMAIL|{newEmail}");
+            }
+        }
         public async Task<bool> ConnectAsync(string loadBalancerIp, int loadBalancerPort, string username)
         {
             try
@@ -119,6 +169,30 @@ namespace RealtimeChatClient
             }
         }
 
+        public async Task CreateRoomAsync(string roomName)
+        {
+            if (_client != null && _client.Connected && _writer != null)
+            {
+                await _writer.WriteLineAsync($"CREATE_ROOM|{roomName}");
+            }
+        }
+
+        public async Task JoinRoomAsync(string roomId)
+        {
+            if (_client != null && _client.Connected && _writer != null)
+            {
+                await _writer.WriteLineAsync($"JOIN_ROOM|{roomId}");
+            }
+        }
+        public async Task SendRoomMessageAsync(string roomId, string message)
+        {
+            if (_client != null && _client.Connected && _writer != null)
+            {
+                string encryptedMsg = CryptoHelper.Encrypt(message);
+                await _writer.WriteLineAsync($"ROOM_MSG|{roomId}|{encryptedMsg}");
+            }
+        }
+
         // Sửa hàm Chat Chung
         public async Task SendMessageAsync(string message)
         {
@@ -140,30 +214,18 @@ namespace RealtimeChatClient
                 await _writer.WriteLineAsync($"PRIVATE|{targetUser}|{encryptedMsg}");
             }
         }
-        public async Task SendFileAsync(string targetUser, string filePath)
-        {
-            FileInfo fi = new FileInfo(filePath);
-            // Gửi header báo hiệu file
-            await _writer.WriteLineAsync($"FILE|{targetUser}|{fi.Name}|{fi.Length}");
 
-            using (FileStream fs = new FileStream(filePath, FileMode.Open, FileAccess.Read))
-            {
-                byte[] buffer = new byte[8192];
-                int read;
-                while ((read = await fs.ReadAsync(buffer, 0, buffer.Length)) > 0)
-                {
-                    await _stream.WriteAsync(buffer, 0, read);
-                }
-            }
-            await _stream.FlushAsync();
-        }
         public async Task SendFileBase64Async(string targetUser, string fileName, string base64Data)
         {
-            if (_client != null && _client.Connected)
-            {
-                // Cấu trúc gói tin: FILE | Người_Nhận | Tên_File | Nội_Dung_Base64
-                await _writer.WriteLineAsync($"FILE|{targetUser}|{fileName}|{base64Data}");
-            }
+            if (_client == null || !_client.Connected || _writer == null)
+                return;
+
+            if (string.IsNullOrWhiteSpace(targetUser) ||
+                string.IsNullOrWhiteSpace(fileName) ||
+                string.IsNullOrWhiteSpace(base64Data))
+                return;
+
+            await _writer.WriteLineAsync($"FILE|{targetUser}|{fileName}|{base64Data}");
         }
         public void Disconnect()
         {

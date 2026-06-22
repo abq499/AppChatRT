@@ -26,7 +26,7 @@ namespace RealtimeChatClient
             }
 
             // Chuỗi kết nối lấy chính xác từ Server của máy em
-            string connectionString = @"Server=LAPTOP-TKFEE1EB\XMSSQLSERVER;Database=ChatAppDB;Trusted_Connection=True;";
+            string connectionString = AppConfig.ConnectionString;
 
             try
             {
@@ -64,7 +64,13 @@ namespace RealtimeChatClient
                 MessageBox.Show("Lỗi kết nối CSDL: " + ex.Message, "Lỗi Server", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
-
+        private void btnForgotPassword_Click(object sender, EventArgs e)
+        {
+            using (ForgotPasswordForm forgotForm = new ForgotPasswordForm())
+            {
+                forgotForm.ShowDialog(this);
+            }
+        }
         private void btnGoToRegister_Click(object sender, EventArgs e)
         {
             RegisterForm regForm = new RegisterForm();
