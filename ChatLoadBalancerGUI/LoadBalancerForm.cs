@@ -15,8 +15,8 @@ namespace ChatLoadBalancerGUI
     {
         private readonly List<ChatServerNode> _chatServers = new List<ChatServerNode>
         {
-            new ChatServerNode("127.0.0.1", 8888),
-            new ChatServerNode("127.0.0.1", 8889)
+            new ChatServerNode("192.168.199.1", 8888),
+            new ChatServerNode("192.168.199.1", 8889)
         };
 
         private int _nextServerIndex = 0;
@@ -187,8 +187,8 @@ namespace ChatLoadBalancerGUI
         {
             while (!token.IsCancellationRequested)
             {
-                bool server8888Alive = await IsServerAliveAsync("127.0.0.1", 8888, 500);
-                bool server8889Alive = await IsServerAliveAsync("127.0.0.1", 8889, 500);
+                bool server8888Alive = await IsServerAliveAsync("192.168.199.1", 8888, 500);
+                bool server8889Alive = await IsServerAliveAsync("192.168.199.1", 8889, 500);
 
                 UpdateServerStatusLabels(server8888Alive, server8889Alive);
 

@@ -1363,6 +1363,78 @@ class Program
             Console.WriteLine("[PRIVATE HISTORY ERROR] " + ex.Message);
         }
     }
+
+    static async Task BroadcastTypingAsync(string senderUsername, string rawMsg)
+    {
+        try
+        {
+            string senderFullName = await GetFullNameFromDB(senderUsername);
+            var parts = rawMsg.Split('|');
+
+            if (parts.Length < 2)
+                return;
+
+            string mode = parts[1].Trim().ToUpper();
+
+            // Chat chung: TYPING|GENERAL
+            if (mode == "GENERAL")
+            {
+                string typingMsg = $"TYPING|GENERAL|{senderUsername}|{senderFullName}";
+
+                foreach (var kvp in connectedClients)
+                {
+                    if (kvp.Key == senderUsername)
+                        continue;
+
+                    try
+                    {
+                        await kvp.Value.WriteLineAsync(typingMsg);
+                    }
+                    catch { }
+                }
+            }
+            // Chat riêng: TYPING|PRIVATE|targetUser
+            else if (mode == "PRIVATE" && parts.Length >= 3)
+            {
+                string targetUser = parts[2].Trim();
+
+                if (connectedClients.TryGetValue(targetUser, out StreamWriter targetWriter))
+                {
+                    await targetWriter.WriteLineAsync($"TYPING|PRIVATE|{senderUsername}|{senderFullName}");
+                }
+            }
+            // Chat room: TYPING|ROOM|roomId
+            else if (mode == "ROOM" && parts.Length >= 3)
+            {
+                string roomId = parts[2].Trim();
+                string typingMsg = $"TYPING|ROOM|{roomId}|{senderUsername}|{senderFullName}";
+
+                foreach (var kvp in connectedClients)
+                {
+                    string localUsername = kvp.Key;
+
+                    if (localUsername == senderUsername)
+                        continue;
+
+                    bool isMember = await IsUserInRoomAsync(localUsername, roomId);
+
+                    if (isMember)
+                    {
+                        try
+                        {
+                            await kvp.Value.WriteLineAsync(typingMsg);
+                        }
+                        catch { }
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("[TYPING ERROR] " + ex.Message);
+        }
+    }
+
     static async Task HandleClientAsync(TcpClient client)
     {
         using NetworkStream stream = client.GetStream();
@@ -1600,6 +1672,10 @@ class Program
                             await DispatchRoomMessageAsync(msg);
                         }
                     }
+                }
+                else if (rawMsg.StartsWith("TYPING|"))
+                {
+                    await BroadcastTypingAsync(username, rawMsg);
                 }
                 else if (rawMsg == "GENERAL_HISTORY")
                 {

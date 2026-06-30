@@ -13,8 +13,8 @@ namespace ChatLoadBalancer
         // Danh sach cac Chat Server trong cum
         static readonly List<ChatServerNode> ChatServers = new List<ChatServerNode>
         {
-            new ChatServerNode("127.0.0.1", 8888),
-            new ChatServerNode("127.0.0.1", 8889)
+            new ChatServerNode("192.168.199.1", 8888),
+            new ChatServerNode(" 192.168.199.1", 8889)
         };
 
         // Bien dem Round-Robin

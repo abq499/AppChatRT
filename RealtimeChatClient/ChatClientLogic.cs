@@ -67,6 +67,33 @@ namespace RealtimeChatClient
                 await _writer.WriteLineAsync($"UPDATE_EMAIL|{newEmail}");
             }
         }
+
+        // ================== TYPING INDICATOR ==================
+        public async Task SendTypingGeneralAsync()
+        {
+            if (_client != null && _client.Connected && _writer != null)
+            {
+                await _writer.WriteLineAsync("TYPING|GENERAL");
+            }
+        }
+
+        public async Task SendTypingPrivateAsync(string targetUser)
+        {
+            if (_client != null && _client.Connected && _writer != null && !string.IsNullOrWhiteSpace(targetUser))
+            {
+                await _writer.WriteLineAsync($"TYPING|PRIVATE|{targetUser}");
+            }
+        }
+
+        public async Task SendTypingRoomAsync(string roomId)
+        {
+            if (_client != null && _client.Connected && _writer != null && !string.IsNullOrWhiteSpace(roomId))
+            {
+                await _writer.WriteLineAsync($"TYPING|ROOM|{roomId}");
+            }
+        }
+        // =======================================================
+
         public async Task<bool> ConnectAsync(string loadBalancerIp, int loadBalancerPort, string username)
         {
             try
@@ -104,8 +131,6 @@ namespace RealtimeChatClient
                 _reader = new StreamReader(_stream, Encoding.UTF8);
                 _writer = new StreamWriter(_stream, Encoding.UTF8) { AutoFlush = true };
 
-                // ================= CHÈN ĐOẠN BẮT TAY VÀO ĐÂY =================
-
                 // 1. Tạo cặp khóa RSA
                 CryptoHelper.GenerateRSAKeys(out string pubKey, out string privKey);
 
@@ -129,8 +154,6 @@ namespace RealtimeChatClient
                 {
                     return false;
                 }
-
-                // =============================================================
 
                 // Gửi username sau khi bắt tay xong
                 await _writer.WriteLineAsync($"LOGIN|{username}");
@@ -193,23 +216,19 @@ namespace RealtimeChatClient
             }
         }
 
-        // Sửa hàm Chat Chung
         public async Task SendMessageAsync(string message)
         {
             if (_client != null && _client.Connected)
             {
-                // Dùng CryptoHelper.Encrypt để khóa chữ lại
                 string encryptedMsg = CryptoHelper.Encrypt(message);
                 await _writer.WriteLineAsync($"MSG|{encryptedMsg}");
             }
         }
 
-        // Sửa hàm Chat Riêng
         public async Task SendPrivateMessageAsync(string targetUser, string message)
         {
             if (_client != null && _client.Connected)
             {
-                // Tương tự, khóa lại trước khi gửi
                 string encryptedMsg = CryptoHelper.Encrypt(message);
                 await _writer.WriteLineAsync($"PRIVATE|{targetUser}|{encryptedMsg}");
             }

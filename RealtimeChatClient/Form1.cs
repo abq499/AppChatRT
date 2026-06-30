@@ -22,12 +22,22 @@ namespace RealtimeChatClient
         private string _myFullName = "";
         private string _myEmail = "";
 
+        private Label _lblTypingStatus;
+        private System.Windows.Forms.Timer _typingHideTimer;
+        private DateTime _lastTypingSentAt = DateTime.MinValue;
+
         // CŨ: public Form1()
         // MỚI NHƯ SAU:
 
         public Form1(string loggedInUser)
         {
             InitializeComponent();
+
+            // Thiết lập ô nhập tin nhắn:
+            // Enter để gửi, Shift + Enter để xuống dòng.
+            SetupMessageInput();
+            SetupTypingIndicator();
+
             _chatLogic = new ChatClientLogic();
 
             _chatLogic.MessageReceived += OnMessageReceived;
@@ -38,6 +48,180 @@ namespace RealtimeChatClient
             txtUsername.Text = loggedInUser;
             txtUsername.Enabled = false;
         }
+
+        private void SetupMessageInput()
+        {
+            // Cho phép ô nhập tin nhắn nhập nhiều dòng
+            txtMessage.Multiline = true;
+
+            // Tăng chiều cao ô nhập để nhìn được nhiều dòng hơn
+            if (txtMessage.Height < 55)
+            {
+                txtMessage.Height = 55;
+            }
+
+            // Tránh gắn trùng event nếu Form bị khởi tạo/gọi lại
+            txtMessage.KeyDown -= txtMessage_KeyDown;
+            txtMessage.KeyDown += txtMessage_KeyDown;
+        }
+
+        private void txtMessage_KeyDown(object sender, KeyEventArgs e)
+        {
+            // Enter thường: gửi tin nhắn
+            if (e.KeyCode == Keys.Enter && !e.Shift)
+            {
+                e.SuppressKeyPress = true;
+
+                if (!string.IsNullOrWhiteSpace(txtMessage.Text))
+                {
+                    btnSend.PerformClick();
+                }
+
+                return;
+            }
+
+            // Shift + Enter: xuống dòng trong ô nhập
+            if (e.KeyCode == Keys.Enter && e.Shift)
+            {
+                e.SuppressKeyPress = true;
+
+                int selectionStart = txtMessage.SelectionStart;
+                string newLine = Environment.NewLine;
+
+                txtMessage.Text = txtMessage.Text.Insert(selectionStart, newLine);
+                txtMessage.SelectionStart = selectionStart + newLine.Length;
+            }
+        }
+        private void SetupTypingIndicator()
+        {
+            _lblTypingStatus = new Label
+            {
+                AutoSize = true,
+                ForeColor = Color.Gray,
+                Font = new Font(this.Font, FontStyle.Italic),
+                Text = "",
+                Visible = false,
+                BackColor = Color.Transparent
+            };
+
+            // Đặt label ngay phía trên ô nhập tin nhắn
+            _lblTypingStatus.Location = new Point(txtMessage.Left, Math.Max(0, txtMessage.Top - 22));
+            this.Controls.Add(_lblTypingStatus);
+            _lblTypingStatus.BringToFront();
+
+            _typingHideTimer = new System.Windows.Forms.Timer
+            {
+                Interval = 2000
+            };
+
+            _typingHideTimer.Tick += (s, e) =>
+            {
+                _typingHideTimer.Stop();
+                _lblTypingStatus.Text = "";
+                _lblTypingStatus.Visible = false;
+            };
+
+            txtMessage.TextChanged -= txtMessage_TextChanged;
+            txtMessage.TextChanged += txtMessage_TextChanged;
+        }
+
+        private async void txtMessage_TextChanged(object sender, EventArgs e)
+        {
+            await NotifyTypingAsync();
+        }
+
+        private async Task NotifyTypingAsync()
+        {
+            if (_chatLogic == null)
+                return;
+
+            if (string.IsNullOrWhiteSpace(_myUsername))
+                return;
+
+            if (string.IsNullOrWhiteSpace(txtMessage.Text))
+                return;
+
+            // Chống spam server: chỉ gửi typing tối đa khoảng 1 lần/1.2 giây
+            if ((DateTime.Now - _lastTypingSentAt).TotalMilliseconds < 1200)
+                return;
+
+            _lastTypingSentAt = DateTime.Now;
+
+            try
+            {
+                if (!string.IsNullOrEmpty(_currentRoomId))
+                {
+                    await _chatLogic.SendTypingRoomAsync(_currentRoomId);
+                }
+                else if (!string.IsNullOrEmpty(_currentPrivateUser))
+                {
+                    await _chatLogic.SendTypingPrivateAsync(_currentPrivateUser);
+                }
+                else
+                {
+                    await _chatLogic.SendTypingGeneralAsync();
+                }
+            }
+            catch
+            {
+                // Không cho lỗi typing làm ảnh hưởng chức năng chat chính
+            }
+        }
+
+        private void ShowTypingStatus(string text)
+        {
+            if (_lblTypingStatus == null || _typingHideTimer == null)
+                return;
+
+            _lblTypingStatus.Text = text;
+            _lblTypingStatus.Visible = true;
+            _lblTypingStatus.BringToFront();
+
+            _typingHideTimer.Stop();
+            _typingHideTimer.Start();
+        }
+
+        private void HandleTypingMessage(string[] parts)
+        {
+            if (parts.Length < 4)
+                return;
+
+            string mode = parts[1];
+
+            if (mode == "GENERAL")
+            {
+                // TYPING|GENERAL|username|fullName
+                if (!string.IsNullOrEmpty(_currentRoomId) || !string.IsNullOrEmpty(_currentPrivateUser))
+                    return;
+
+                string displayName = string.IsNullOrWhiteSpace(parts[3]) ? parts[2] : parts[3];
+                ShowTypingStatus($"{displayName} đang nhập...");
+            }
+            else if (mode == "PRIVATE")
+            {
+                // TYPING|PRIVATE|username|fullName
+                string senderUsername = parts[2];
+                string displayName = string.IsNullOrWhiteSpace(parts[3]) ? senderUsername : parts[3];
+
+                if (_currentPrivateUser == senderUsername)
+                {
+                    ShowTypingStatus($"{displayName} đang nhập tin nhắn riêng...");
+                }
+            }
+            else if (mode == "ROOM" && parts.Length >= 5)
+            {
+                // TYPING|ROOM|roomId|username|fullName
+                string roomId = parts[2];
+                string senderUsername = parts[3];
+                string displayName = string.IsNullOrWhiteSpace(parts[4]) ? senderUsername : parts[4];
+
+                if (_currentRoomId == roomId)
+                {
+                    ShowTypingStatus($"{displayName} đang nhập trong phòng...");
+                }
+            }
+        }
+
         // THÊM HÀM NÀY ĐỂ XỬ LÝ KHI CLICK ĐÚP VÀO TÊN
         private async void LbOnlineUsers_DoubleClick(object sender, EventArgs e)
         {
@@ -287,7 +471,7 @@ namespace RealtimeChatClient
             else
                 lblMyFullName.Text = _myUsername;
 
-            
+
 
             if (!string.IsNullOrEmpty(avatarBase64))
             {
@@ -339,7 +523,11 @@ namespace RealtimeChatClient
 
             var parts = rawData.Split(new[] { '|' }, 6);
 
-            if (parts[0] == "MY_PROFILE" && parts.Length >= 5)
+            if (parts[0] == "TYPING")
+            {
+                HandleTypingMessage(parts);
+            }
+            else if (parts[0] == "MY_PROFILE" && parts.Length >= 5)
             {
                 string username = parts[1];
                 string fullName = parts[2];
@@ -851,7 +1039,7 @@ namespace RealtimeChatClient
             _myFullName = "";
             _myEmail = "";
             lblMyFullName.Text = "";
-            
+
 
             txtUsername.Enabled = true;
             txtServerIP.Enabled = true;
