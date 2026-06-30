@@ -118,20 +118,7 @@ Hai Chat Server dùng chung SQL Server để đồng bộ:
 
 Lưu ý: cơ chế hiện tại giúp bảo vệ dữ liệu truyền/lưu ở mức ứng dụng, nhưng chưa phải end-to-end encryption tuyệt đối vì server vẫn tham gia cấp khóa.
 
-### 3.10 Typing Indicator
-
-- Khi người dùng đang gõ, client gửi sự kiện typing lên server.
-- Client khác hiển thị trạng thái: `user đang nhập...`.
-- Trạng thái tự ẩn sau một khoảng thời gian ngắn.
-
-### 3.11 Nhập văn bản bằng giọng nói
-
-- Client có nút micro để chuyển âm thanh thành văn bản.
-- Nội dung nhận diện được đưa vào ô nhập tin nhắn.
-- Dùng `System.Speech`.
-- Khả năng nhận diện phụ thuộc vào ngôn ngữ Speech Recognition của Windows.
-
-### 3.12 Nhập tin nhắn nhiều dòng
+### 3.10 Nhập tin nhắn nhiều dòng
 
 - `Enter`: gửi tin nhắn.
 - `Shift + Enter`: xuống dòng trong ô nhập.
